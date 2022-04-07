@@ -1,0 +1,144 @@
+object Form1: TForm1
+  Left = 338
+  Height = 489
+  Top = 108
+  Width = 728
+  Caption = 'Form1'
+  ClientHeight = 467
+  ClientWidth = 728
+  KeyPreview = True
+  Menu = MainMenu1
+  OnCloseQuery = FormCloseQuery
+  OnCreate = FormCreate
+  OnKeyDown = FormKeyDown
+  OnKeyUp = FormKeyUp
+  LCLVersion = '2.3.0.0'
+  object OpenGLControl1: TOpenGLControl
+    Left = 8
+    Height = 344
+    Top = 8
+    Width = 448
+    OnMakeCurrent = OpenGLControl1MakeCurrent
+    OnMouseDown = OpenGLControl1MouseDown
+    OnMouseMove = OpenGLControl1MouseMove
+    OnMouseUp = OpenGLControl1MouseUp
+    OnPaint = OpenGLControl1Paint
+    OnResize = OpenGLControl1Resize
+    PopupMenu = PopupMenu1
+  end
+  object GroupBox1: TGroupBox
+    Left = 8
+    Height = 64
+    Top = 376
+    Width = 560
+    ClientHeight = 62
+    ClientWidth = 558
+    TabOrder = 1
+    object Button1: TButton
+      Left = 14
+      Height = 25
+      Top = 8
+      Width = 75
+      Caption = 'Act'
+      OnClick = Button1Click
+      TabOrder = 0
+    end
+    object Button2: TButton
+      Left = 102
+      Height = 25
+      Top = 8
+      Width = 75
+      Caption = 'Start'
+      OnClick = Button2Click
+      TabOrder = 1
+    end
+    object Button3: TButton
+      Left = 190
+      Height = 25
+      Top = 8
+      Width = 75
+      Caption = 'Reset'
+      OnClick = Button3Click
+      TabOrder = 2
+    end
+    object Label1: TLabel
+      Left = 286
+      Height = 16
+      Top = 16
+      Width = 37
+      Caption = 'Speed'
+    end
+    object TrackBar1: TTrackBar
+      Left = 342
+      Height = 39
+      Top = 0
+      Width = 200
+      Frequency = 25
+      Max = 100
+      Min = 1
+      OnChange = TrackBar1Change
+      PageSize = 25
+      Position = 50
+      OnKeyDown = FormKeyDown
+      OnKeyUp = FormKeyUp
+      TabOrder = 3
+    end
+  end
+  object Panel1: TPanel
+    Left = 464
+    Height = 344
+    Top = 8
+    Width = 224
+    BevelOuter = bvNone
+    Caption = 'Panel1'
+    ClientHeight = 344
+    ClientWidth = 224
+    TabOrder = 2
+    object TreeView2: TTreeView
+      Left = 40
+      Height = 56
+      Top = 8
+      Width = 168
+      BorderSpacing.Left = 5
+      ScrollBars = ssNone
+      TabOrder = 0
+    end
+    object TreeView1: TTreeView
+      Left = 16
+      Height = 217
+      Top = 127
+      Width = 200
+      BorderSpacing.Left = 5
+      TabOrder = 1
+    end
+  end
+  object MainMenu1: TMainMenu
+    Left = 40
+    Top = 16
+    object MenuItem1: TMenuItem
+      Caption = '&Main'
+      object MenuItem2: TMenuItem
+        Caption = 'New'
+      end
+      object MenuItem4: TMenuItem
+        Caption = '&Close'
+        OnClick = MenuItem4Click
+      end
+    end
+  end
+  object Timer1: TTimer
+    OnTimer = Timer1Timer
+    Left = 112
+    Top = 16
+  end
+  object PopupMenu1: TPopupMenu
+    Left = 40
+    Top = 80
+  end
+  object Timer2: TTimer
+    Interval = 10
+    OnTimer = Timer2Timer
+    Left = 168
+    Top = 16
+  end
+end
