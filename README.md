@@ -3,8 +3,12 @@ This Repository is a Lazarus reimplementation of the Java Greenfoot project from
 
 https://www.greenfoot.org/door
 
+Compileable under Windows or Linux
+
 # Documentation
 For Usage of the Greenfoot classes see the documentation of the Greenfoot project
+
+![](preview.png)
 
 # Content
 The following classes are available
@@ -28,3 +32,4 @@ Additional there is a Graphikengine
 - SpaceCommand - a Space invader game
 - Tetris - the implementation of the classic Tetris game
 - Wombat - try to eat leafs and dont get catched by the other wombats
+
