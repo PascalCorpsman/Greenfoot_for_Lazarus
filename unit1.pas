@@ -1,15 +1,27 @@
 (******************************************************************************)
-(*                                                                            *)
 (* Greenfoot for Lazarus                                           08.04.2013 *)
+(*                                                                            *)
+(* Version     : 0.02                                                         *)
+(*                                                                            *)
+(* Author      : Uwe Schächterle (Corpsman)                                   *)
+(*                                                                            *)
+(* Support     : www.Corpsman.de                                              *)
 (*                                                                            *)
 (* Description : This Unit implements a Greenfoot like interface for          *)
 (*               Lazarus using the fpc compiler and simulating with OpenGL    *)
 (*                                                                            *)
-(* License : This Software is Freeware for non Commercial use only.           *)
+(* License     : See the file license.md, located under:                      *)
+(*  https://github.com/PascalCorpsman/Software_Licenses/blob/main/license.md  *)
+(*  for details about the license.                                            *)
 (*                                                                            *)
-(* Warranty : There is no warranty.                                           *)
+(*               It is not allowed to change or remove this text from any     *)
+(*               source file of the project.                                  *)
 (*                                                                            *)
-(* Support/ Bugs : www.Corpsman.de                                            *)
+(* Warranty    : There is no warranty, neither in correctness of the          *)
+(*               implementation, nor anything other that could happen         *)
+(*               or go wrong, use at your own risk.                           *)
+(*                                                                            *)
+(* Known Issues: none                                                         *)
 (*                                                                            *)
 (* Howto :                                                                    *)
 (*         1. Create a new Unit and include :                                 *)
@@ -45,6 +57,10 @@
 (*                                                                            *)
 (* Original Dokumentation :                                                   *)
 (*      http://www.greenfoot.org/files/javadoc/greenfoot/package-summary.html *)
+(*                                                                            *)
+(* History     : 0.01 - Initial version                                       *)
+(*               0.02 - Ettliche Bugfixes / Memleak Clears                    *)
+(*                      utetris                                               *)
 (*                                                                            *)
 (******************************************************************************)
 Unit Unit1;
@@ -394,11 +410,6 @@ Begin
     showmessage('Error, could not init dglOpenGL.pas');
     Halt;
   End;
-  (*
-   * Historie: 0.01 = Initialversion
-   *           0.02 = Ettliche Bugfixes / Memleak Clears
-   *                  utetris
-   *)
   caption := 'Greenfoot for Lazarus ver. 0.02 by Corpsman, www.Corpsman.de';
   Timer1.Interval := 17;
   GroupBox1.Align := alBottom;

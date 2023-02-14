@@ -65,6 +65,7 @@
       <Unit4>
         <Filename Value="../Sample/OpenGL/dglopengl.pas"/>
         <IsPartOfProject Value="True"/>
+        <UnitName Value="dglOpenGL"/>
       </Unit4>
       <Unit5>
         <Filename Value="../Sample/Graphik/ugraphics.pas"/>
