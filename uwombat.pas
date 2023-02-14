@@ -15,7 +15,7 @@
 (*
  * This Unit is the Original Java to FreePascal translation from
  *
- * http://www.greenfoot.org/scenarios/486
+ * http://www.greenfoot.org/scenarios/486 ( https://github.com/mrhardman23/Leaves-and-Wombats )
  *
  *
  * Changelog : ver. 0.01 = 1:1 Translation
