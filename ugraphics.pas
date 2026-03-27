@@ -1,7 +1,7 @@
 (******************************************************************************)
 (* uGraphiks.pas                                                   ??.??.???? *)
 (*                                                                            *)
-(* Version     : 0.13                                                         *)
+(* Version     : 0.15                                                         *)
 (*                                                                            *)
 (* Author      : Uwe Schächterle (Corpsman)                                   *)
 (*                                                                            *)
@@ -41,6 +41,9 @@
 (*               0.12 - add wmFuchsia                                         *)
 (*                      FIX: glitch on rotating images                        *)
 (*               0.13 - RGBAToFPColor, FPColorToRGBA                          *)
+(*               0.14 - RGBAtoLuminanz                                        *)
+(*               0.15 - TRGBA is now packed and byte compatible to TBitmap    *)
+(*                      in pf32Bit mode                                       *)
 (*                                                                            *)
 (******************************************************************************)
 
@@ -60,6 +63,10 @@ Uses
   math // max, min, arctan2
   ;
 
+Const
+  AlphaOpaque = 0;
+  AlphaTranslucent = 255;
+
 Type
   TInterpolationMode = (
     imNone, // Keine Interpolierung die Koordinaten werden immer auf trunc und dann direkt ausgegen => nur Sinnvoll bei 1:1 Abtastungen da sonst bildfehler entstehen können
@@ -77,13 +84,14 @@ Type
     );
 
   TRGB = Record
-    r, g, b: Byte;
+    B, G, R: Byte;
   End;
 
-  TRGBA = Record
-    r, g, b, a: Byte;
+  TRGBA = Packed Record
+    B, G, R, A: Byte;
   End;
 
+  PRGBA = ^TRGBA;
 
   // https://en.wikipedia.org/wiki/HSL_and_HSV#HSV_to_HSL
   THSL = Record
@@ -103,7 +111,7 @@ Function Color565ToRGB(value: Word): TRGB; // Wandelt eine 2Byte Farbe in eine 3
 Function RGB(r, g, b: Byte): TRGB;
 Function RGBA(R, G, B, A: Byte): TRGBA;
 Function ColorToRGB(c: TColor): TRGB;
-Function ColorToRGBA(c: TColor; AlphaValue: byte = 0): TRGBA;
+Function ColorToRGBA(c: TColor; AlphaValue: byte = AlphaOpaque): TRGBA;
 Function RGBToColor(rgb: TRGB): TColor;
 Function RGBAToColor(rgba: TRGBA): TColor;
 Function FPColorToColor(Const Color: TFPColor): TColor; // Wandelt eine FPColor in TColor um
@@ -116,6 +124,7 @@ Function FPColorToRGBA(Const Color: TFPColor): TRGBA;
 Function FPColorToHSL(Const Color: TFPColor): THSL;
 Function HSLToFPColor(Const hsl: THSL): TFPColor;
 
+Function RGBAtoLuminanz(Value: TRGBA): Byte; // Berechnet die Helligkeit einer Farbe
 Function FPColortoLuminanz(Value: TFPColor): Byte; // Berechnet die Helligkeit einer Farbe
 Function ColortoLuminanz(Value: TColor): Byte; // Berechnet die Helligkeit einer Farbe
 
@@ -527,6 +536,17 @@ Begin
   result.Alpha := 255 Shr 8;
 End;
 
+Function RGBAtoLuminanz(Value: TRGBA): Byte;
+Begin
+  //Y = 0.3R + 0.59G + 0.11B
+  result := min(255, max(0,
+    round(
+    value.R * 0.3 +
+    value.g * 0.59 +
+    value.b * 0.11
+    )));
+End;
+
 Function FPColortoLuminanz(Value: TFPColor): Byte;
 Begin
   //Y = 0.3R + 0.59G + 0.11B
@@ -542,6 +562,7 @@ Function ColortoLuminanz(Value: TColor): Byte;
 Var
   c: TFPColor;
 Begin
+  // TODO: ohne umwandlung nach tFPColor realisieren
   c.red := (value And $FF) Shl 8;
   c.green := (value And $FF00);
   c.blue := (value And $FF0000) Shr 8;

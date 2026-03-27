@@ -1,7 +1,7 @@
 (******************************************************************************)
-(* uvectormat.pas                                                  12.11.2014 *)
+(* uvectormath.pas                                                 12.11.2014 *)
 (*                                                                            *)
-(* Version     : 0.18                                                         *)
+(* Version     : 0.23                                                         *)
 (*                                                                            *)
 (* Author      : Uwe Schächterle (Corpsman)                                   *)
 (*                                                                            *)
@@ -60,6 +60,13 @@
 (*                     TMatrix3x3.getInverse, TMatrix2x2.getInverse           *)
 (*                    InvertMatrix2 for TMatrix4x4, TMatrix2x2                *)
 (*               0.18 CalculatePlumbFootPoint                                 *)
+(*               0.19 Convolve                                                *)
+(*                    speedup RectIntersectRect code                          *)
+(*               0.20 PointsToConvexHull for Tvertex3Array                    *)
+(*                    IsLinearDependent                                       *)
+(*               0.21 Add Generic Quicksort algorithm                         *)
+(*               0.22 Made uvectormath.inc not used by default                *)
+(*               0.23 Add PointsToVoronoiPolygons                             *)
 (*                                                                            *)
 (******************************************************************************)
 Unit uvectormath;
@@ -67,6 +74,7 @@ Unit uvectormath;
 {$MODE objfpc}{$H+}
 {$MODESWITCH advancedrecords}
 {$MODESWITCH TypeHelpers}
+{$MODESWITCH nestedprocvars}
 
 Interface
 
@@ -76,29 +84,36 @@ Uses
   , classes // TPoint
   ;
 
+(*
+ * By default uvectormath.pas uses single as TBasetype (to be byte compatible to OpenGL).
+ *
+ * If your project needs "more" or other settings:
+ * define the "use_inc_file_to_not_use_default_settings" in your project configuration:
+ *
+ *  Project -> Project Options -> Compiler Options -> Custom Options -> Defines
+ *
+ * and then use a "uvectormath.inc" file to define your own configurations.
+ *)
+
+{$IFNDEF use_inc_file_to_not_use_default_settings}
+
 Const
-  Epsilon = 0.00390625; // = 1 / 256, Unterscheiden sich 2 Float Werte um weniger als Epsilon, dann werden sie als Gleich angesehen
+  Epsilon = 0.00390625; // = 1 / 256 = 2^(-8), Unterscheiden sich 2 Float Werte um weniger als Epsilon, dann werden sie als Gleich angesehen
 
 Type
 
-  (*
-   * If you get a compiler error with missing file
-   * just create a file namend "uvectormath.inc" in your project folder and
-   * insert the following content:
-   *
-   * ---------- Content of file ----------
-     // Mit diesem Schalter kann das Überladen der Standard Operatoren Aktiviert
-     // werden ( Achtung das kann nicht jeder FPC Compiler )
+  TBaseType = Single; // Alle Komponenten bestehen aus BaseType, zur Nutzung von OpenGL ist Single zwingend !!
 
-     {$DEFINE UseOperandOverloading}
+{$ELSE}
 
-     TBaseType = Single; // Alle Komponenten bestehen aus BaseType, zur Nutzung von OpenGL ist Single zwingend !!
-
-     ---------- End content of file ----------
-   *)
-
+(*
+ * for needed content of uvectormath.inc, see above section.
+ *)
 {$I uvectormath.inc}
 
+{$ENDIF}
+
+Type
   TVector2 = Record
     Case boolean Of
       false: (x, y: TBaseType);
@@ -164,10 +179,24 @@ Type
 
   TCircle = Record // Ein Kreis
     Center: TVector2; // Kreismittelpunkt
-    radius: TBaseType; // Sein Radius
+    Radius: TBaseType; // Sein Radius
   End;
 
+  TVoronoi = Array Of TVector2Array;
+
   TMapFunction = Function(x: Single): Single; // Funktionsprototyp für MapFunction
+
+  TFace = Record
+    a, b, c: integer; // Index in TVector3Array
+    Normal: TVector3;
+  End;
+
+  TFaceArray = Array Of TFace;
+
+  TSphere = Record // Eine Kugel
+    Center: TVector3;
+    Radius: TBaseType;
+  End;
 
   { TVector2helper }
 
@@ -176,6 +205,8 @@ Type
     Function Cross(Other: TVector2): TVector2;
     Function Hadamard(Other: TVector2): TVector2;
     Function Dot(Other: TVector2): TBaseType;
+    Procedure Lerp(Const Other: TVector2; Amplitude: TBaseType);
+    Function ToString: String;
   End;
 
   { TVector3helper }
@@ -201,6 +232,14 @@ Type
     Function Equal(Other: TVectorN): Boolean;
     Function Hadamard(Other: TVectorN): TVectorN;
     Function Transpose(): TMatrixNxM;
+    Procedure Fill(value: TBaseType);
+  End;
+
+  { TVector2Arrayhelper }
+
+  TVector2Arrayhelper = Type Helper For TVector2Array
+
+    Procedure Push(Const Vector: TVector2);
   End;
 
   { TMatrix2x2helper }
@@ -237,8 +276,6 @@ Type
     Function Transpose(): TMatrixNxM;
     Function MapMatrix(MapFunction: TMapFunction): TMatrixNxM;
   End;
-
-{$IFDEF UseOperandOverloading}
 
   (*
     -- Aus Sicherheitsgründen werden alle = Operatoren deaktiviert, da der
@@ -310,8 +347,6 @@ Operator / (v: TVector3; s: TBaseType): TVector3;
 Operator / (s: TBaseType; v: TVector4): TVector4;
 Operator / (v: TVector4; s: TBaseType): TVector4;
 
-{$ENDIF}
-
 // Konstruktoren
 Function ZeroV2(): TVector2;
 Function ZeroV3(): TVector3;
@@ -346,6 +381,7 @@ Function VNToNxM(Const V: TvectorN): TMatrixNxM; // Konvertiert einen Vektor in 
 Function NxMToVN(Const M: TMatrixNxM): TVectorN; // Konvertiert eine Matrix in einen Vektor, Zeilenweise eingelesen
 
 // Operatoren
+Function Equal(Const a, b: TBaseType): Boolean; overload;
 Function Equal(Const a, b: TVector2): Boolean; overload;
 Function Equal(Const a, b: TVectorN): Boolean; overload;
 Function Equal(Const a, b: TMatrixNxM): Boolean; overload;
@@ -380,6 +416,9 @@ Function HadamardNxM(Const a, b: TMatrixNxM): TMatrixNxM; // Komponentenweise Mu
 
 Function CrossV2(Const a, b: Tvector2): Tvector2;
 Function CrossV3(Const a, b: Tvector3): Tvector3;
+
+Function IsLinearDependent(Const a, b: TVector2): Boolean; overload;
+Function IsLinearDependent(Const a, b: TVector3): Boolean; overload;
 
 Function MulVectorMatrix(Const V: TVector2; Const M: TMatrix2x2): TVector2; overload;
 Function MulVectorMatrix(Const V: TVector3; Const M: TMatrix3x3): TVector3; overload;
@@ -483,6 +522,7 @@ Function Clamp(Value, Lower, Upper: integer): integer; overload; // Zwingt Value
 Function Clamp(Value, Lower, Upper: Single): Single; overload;
 Function Mod2(a, b: Integer): integer; // Bildet Negative "a" auf die passenden positiven Restklassen von b ab.
 Function RandomRange(a, b: integer): integer; // Erzeugt eine Zufallszahl im Bereich [a..b) Randomize muss vorher augerufen worden sein !!
+Function RandomRange(a, b: TBaseType): TBaseType;
 
 // Konvertierungsfunktionen
 Function ConvertDimension(vmin, vmax, v: TBaseType; rmin, rmax: TBaseType): TBaseType; // Rechnet einen Wert v in der Scala Vmin-Vmax in die passende Scala rmin-Rmax um. Details siehe unten
@@ -494,10 +534,17 @@ Function Map(Value, fromLow, fromHigh: TBaseType; toLow, toHigh: TBaseType): TBa
 Function PointArrIsConvexPolygon(Const Points: TVector2Array): Boolean;
 
 // Berechnet aus einer Punktwolke die Convexe Hülle und gibt diese zurück
-Function PointsToConvexHull(Const Points: TVector2Array): TVector2Array;
+Function PointsToConvexHull(Const Points: TVector2Array): TVector2Array; overload;
+// Berechnet aus einer Punktwolke die 3ecke die die Hülle bilden und gibt diese als Array zurück (alle Normalen zeigen nach außen)
+Function PointsToConvexHull(Const Points: TVector3Array): TFaceArray; overload;
 
 // Gibt eine Dreiecksliste zu Points zurück, welcher einer Delaunay Triangulierung entspricht
 Function PointsToDelaunayTriangleList(Const Points: TVector2Array; CheckForDoublePoints: Boolean = True): TTriangleArray;
+
+// Der Code hat keine Checks, es muss sichergestellt werden dass:
+// Points keine "Dubletten" beinhaltet
+// TopLeft, BottomRight tatsächlich alle Points beinhaltet, sonst kommt Blödsinn raus
+Function PointsToVoronoiPolygons(Const Points: TVector2Array; TopLeft, BottomRight: TVector2): TVoronoi;
 
 // Berechnet aus den 3 Punkten a,b,c einen Kreis, so dass die 3 Punkte auf dessen Kreisbahn liegen, ist der Radius Negativ, dann ist der Kreis eigentlich nicht Berechenbar gewesen.
 Function PointsToCircumCircle(Const A, B, C: Tvector2): TCircle;
@@ -580,9 +627,168 @@ Function LeastSquares(Points: TVector2Array; Grade: integer): TVectorN;
 // Die Koeffizienten von a werden als Vector übergben
 Function CalculatePolynom(x: TBaseType; Const a: TVectorN): TBaseType;
 
+// Faltet 2 Vectoren mit einander und gibt das Ergebnis zurück, Achtung,
+// hier wird die "ineffiziente" Quadratische Faltung verwendet,
+// also die Vectoren lieber nicht zu groß machen!
+// Es gibt auch noch die Variante, bei der man zuerst die beiden Vektoren
+// durch eine FFT jagt, dann komponentenweise multipliziert und dann wieder
+// zurück transformiert, das ist bei Großen Vektoren tatsächlich schneller (siehe hier: https://www.youtube.com/watch?v=KuXjwB4LzSA )
+Function Convolve(Const a, b: tvectorN): TVectorN;
+
+Type
+  TCompareFunction = Function(a, b: Pointer): Integer;
+  TNestedCompareFunction = Function(a, b: Pointer): Integer Is nested;
+
+  (*
+   * Generischer Quicksort Algoritmus auf einem Array
+   *)
+
+Procedure GenQuickSort(FirstElement: Pointer; ElementCount: integer; ElementSize: QWord; CompareFunction: TCompareFunction); overload;
+Procedure GenQuickSort(FirstElement: Pointer; ElementCount: integer; ElementSize: QWord; CompareFunction: TNestedCompareFunction); overload;
+
 Implementation
 
-{$IFDEF UseOperandOverloading}
+Procedure GenQuickSort(FirstElement: Pointer; ElementCount: integer; ElementSize: QWord; CompareFunction: TCompareFunction);
+Var
+  PivotElement, Buffer: Array Of Byte;
+
+  Procedure Quick(li, re: Pointer);
+  Var
+    lp, rp, pp: Pointer;
+    LeftSize, RightSize: PtrInt;
+  Begin
+    While li < re Do Begin
+{$PUSH}
+{$HINTS OFF}
+      // Create a Copy of the Pivo element for comparing during sorting..
+      pp := pointer(
+        PtrUInt(li) +
+        (((PtrUInt(re) - PtrUInt(li)) Div ElementSize) Shr 1) * ElementSize
+        );
+{$POP}
+      move(pp^, PivotElement[0], ElementSize);
+      lp := li;
+      rp := re;
+      Repeat
+        While CompareFunction(lp, @PivotElement[0]) < 0 Do Begin
+          inc(lp, ElementSize);
+        End;
+        While CompareFunction(rp, @PivotElement[0]) > 0 Do Begin
+          dec(rp, ElementSize);
+        End;
+        If Lp <= Rp Then Begin
+          // Swap L and R elements using Buffer
+          move(lp^, Buffer[0], ElementSize);
+          move(rp^, lp^, ElementSize);
+          move(Buffer[0], rp^, ElementSize);
+          inc(lp, ElementSize);
+          dec(rp, ElementSize);
+        End;
+      Until lp > rp;
+      // Recursive call for the "smaller" part of the unsorted array
+{$PUSH}
+{$WARNINGS OFF}
+{$HINTS OFF}
+      LeftSize := PtrInt(rp) - PtrInt(li);
+      RightSize := PtrInt(re) - PtrInt(lp);
+{$POP}
+      If LeftSize < RightSize Then Begin
+        Quick(li, rp);
+        li := lp;
+      End
+      Else Begin
+        Quick(lp, re);
+        re := rp;
+      End;
+    End;
+  End;
+Begin
+  If ElementCount <= 1 Then exit;
+  If (ElementSize <= 0) Or (Not assigned(CompareFunction)) Then Begin
+    Raise exception.Create('GenQuickSort: Error, invalid configuration.');
+  End;
+  // Preallocate Buffers
+  buffer := Nil;
+  PivotElement := Nil;
+  setlength(buffer, ElementSize);
+  setlength(PivotElement, ElementSize);
+  // The Real Sorting
+  Quick(FirstElement, FirstElement + ElementSize * (ElementCount - 1));
+  // Teardown
+  setlength(buffer, 0);
+  setlength(PivotElement, 0);
+End;
+
+Procedure GenQuickSort(FirstElement: Pointer; ElementCount: integer; ElementSize: QWord; CompareFunction: TNestedCompareFunction);
+Var
+  PivotElement, Buffer: Array Of Byte;
+
+  Procedure Quick(li, re: Pointer);
+  Var
+    lp, rp, pp: Pointer;
+    LeftSize, RightSize: PtrInt;
+  Begin
+    While li < re Do Begin
+      // Create a Copy of the Pivo element for comparing during sorting..
+{$PUSH}
+{$HINTS OFF}
+      pp := pointer(
+        PtrUInt(li) +
+        (((PtrUInt(re) - PtrUInt(li)) Div ElementSize) Shr 1) * ElementSize
+        );
+{$POP}
+      move(pp^, PivotElement[0], ElementSize);
+      lp := li;
+      rp := re;
+      Repeat
+        While CompareFunction(lp, @PivotElement[0]) < 0 Do Begin
+          inc(lp, ElementSize);
+        End;
+        While CompareFunction(rp, @PivotElement[0]) > 0 Do Begin
+          dec(rp, ElementSize);
+        End;
+        If Lp <= Rp Then Begin
+          // Swap L and R elements using Buffer
+          move(lp^, Buffer[0], ElementSize);
+          move(rp^, lp^, ElementSize);
+          move(Buffer[0], rp^, ElementSize);
+          inc(lp, ElementSize);
+          dec(rp, ElementSize);
+        End;
+      Until lp > rp;
+      // Recursive call for the "smaller" part of the unsorted array
+{$PUSH}
+{$WARNINGS OFF}
+{$HINTS OFF}
+      LeftSize := PtrInt(rp) - PtrInt(li);
+      RightSize := PtrInt(re) - PtrInt(lp);
+{$POP}
+      If LeftSize < RightSize Then Begin
+        Quick(li, rp);
+        li := lp;
+      End
+      Else Begin
+        Quick(lp, re);
+        re := rp;
+      End;
+    End;
+  End;
+Begin
+  If ElementCount <= 1 Then exit;
+  If (ElementSize <= 0) Or (Not assigned(CompareFunction)) Then Begin
+    Raise exception.Create('GenQuickSort: Error, invalid configuration.');
+  End;
+  // Preallocate Buffers
+  buffer := Nil;
+  PivotElement := Nil;
+  setlength(buffer, ElementSize);
+  setlength(PivotElement, ElementSize);
+  // The Real Sorting
+  Quick(FirstElement, FirstElement + ElementSize * (ElementCount - 1));
+  // Teardown
+  setlength(buffer, 0);
+  setlength(PivotElement, 0);
+End;
 
 Operator := (p: TPoint): TVector2;
 Begin
@@ -791,8 +997,6 @@ Begin
   result := ScaleV4(1 / s, v);
 End;
 
-{$ENDIF}
-
 Function Sign(Value: TBaseType): Integer; // Gibt das Vorzeichen oder 0 zurück
 Begin
   If value = 0 Then Begin
@@ -859,6 +1063,19 @@ Begin
   End;
   i := b - a;
   result := random(i) + a;
+End;
+
+Function RandomRange(a, b: TBaseType): TBaseType;
+Var
+  i: TBaseType;
+Begin
+  If a > b Then Begin
+    i := a;
+    a := b;
+    b := i;
+  End;
+  i := b - a;
+  result := random() + a;
 End;
 
 (*
@@ -1165,6 +1382,11 @@ Begin
   result.x := max(a.x, b.x);
   result.y := max(a.y, b.y);
   result.z := max(a.z, b.z);
+End;
+
+Function Equal(Const a, b: TBaseType): Boolean;
+Begin
+  result := abs(a - b) < Epsilon;
 End;
 
 Function Equal(Const a, b: TVector2): Boolean;
@@ -2135,6 +2357,22 @@ Begin
   End;
 End;
 
+Function IsLinearDependent(Const a, b: TVector2): Boolean;
+Var
+  Cross: TVector2;
+Begin
+  Cross := CrossV2(a, b);
+  Result := (Cross.x = 0) And (Cross.y = 0);
+End;
+
+Function IsLinearDependent(Const a, b: TVector3): Boolean;
+Var
+  Cross: TVector3;
+Begin
+  Cross := CrossV3(a, b);
+  Result := (Cross.x = 0) And (Cross.y = 0) And (Cross.z = 0);
+End;
+
 Function MulVectorMatrix(Const V: TVector2; Const M: TMatrix2x2): TVector2;
 Begin
   Result.x := m[0, 0] * v.x + m[0, 1] * v.y;
@@ -2425,6 +2663,345 @@ Begin
     // Kopieren wenn wir weniger als 4 Punkte haben
     For i := 0 To high(Points) Do
       result[i] := points[i];
+    setlength(result, length(Points));
+  End;
+End;
+
+(*
+ * Inspired by:
+ *   https://github.com/Dung-Han-Lee/Convexhull-3D-Implementation-of-incremental-convexhull-algorithm/tree/master
+ * which comes from:
+ *    Computational Geometry in C by O'Rourke Page 117 to 154
+ *)
+
+Function PointsToConvexHull(Const Points: TVector3Array): TFaceArray;
+Type
+  TKey = Record
+    a, b: Integer; // index in Points
+  End;
+
+  TFace = Record
+    Visible: Boolean;
+    Vertices: Array[0..2] Of Integer; // index in Points
+  End;
+
+  TEdge = Record
+    remove: boolean;
+    adjface1, adjface2: integer; // -1 = nil, sonst index in faces
+    endpoints: Array[0..1] Of Integer; // index in Points
+  End;
+
+  Tmap_Edge = Record
+    key: tKey;
+    edge: integer; // index in edges
+  End;
+
+  Function ToFace(a, b, c: Integer): TFace;
+  Begin
+    result.Vertices[0] := a;
+    result.Vertices[1] := b;
+    result.Vertices[2] := c;
+    result.Visible := false;
+  End;
+
+  Function Key2Edge(Const a, b: Integer): tKey;
+  Begin
+    result.a := a;
+    result.b := b;
+  End;
+
+  Function opcomp(Const a, b: tKey): Boolean;
+  Begin
+    result :=
+      ((a.a = b.a) And (a.b = b.b)) Or
+      ((a.a = b.b) And (a.b = b.a));
+  End;
+
+  Function Colinear(Const a, b, c: Integer): Boolean;
+  Begin
+    result :=
+      (((Points[c].z - Points[a].z) * (Points[b].y - Points[a].y) -
+      (Points[b].z - Points[a].z) * (Points[c].y - Points[a].y)) = 0) And (
+      ((Points[b].z - Points[a].z) * (Points[c].x - Points[a].x) -
+      (Points[b].x - Points[a].x) * (Points[c].z - Points[a].z)) = 0) And (
+      ((Points[b].x - Points[a].x) * (Points[c].y - Points[a].y) -
+      (Points[b].y - Points[a].y) * (Points[c].x - Points[a].x)) = 0);
+  End;
+
+  Function VolumeSign(Const face: TFace; Const p: Integer): integer;
+  Var
+    vol: TBaseType;
+    ax, ay, az, bx, by, bz, cx, cy, cz: TBaseType;
+  Begin
+    ax := Points[face.vertices[0]].x - Points[p].x;
+    ay := Points[face.vertices[0]].y - Points[p].y;
+    az := Points[face.vertices[0]].z - Points[p].z;
+    bx := Points[face.vertices[1]].x - Points[p].x;
+    by := Points[face.vertices[1]].y - Points[p].y;
+    bz := Points[face.vertices[1]].z - Points[p].z;
+    cx := Points[face.vertices[2]].x - Points[p].x;
+    cy := Points[face.vertices[2]].y - Points[p].y;
+    cz := Points[face.vertices[2]].z - Points[p].z;
+    vol :=
+      ax * (by * cz - bz * cy) +
+      ay * (bz * cx - bx * cz) +
+      az * (bx * cy - by * cx);
+    If (vol = 0) Then Begin
+      result := 0;
+    End
+    Else Begin
+      If vol < 0 Then Begin
+        result := -1;
+      End
+      Else Begin
+        result := 1;
+      End;
+    End;
+  End;
+
+Var
+  faces: Array Of TFace;
+  map_edges: Array Of Tmap_Edge;
+  edges: Array Of TEdge;
+
+  Procedure AddOneFace(Const a, b, c: integer; Const inner_pt: integer);
+    // Create edges and link them to face pointer
+    Procedure create_edge(Const p1, p2: Integer);
+    Var
+      key: tKey;
+      KeyIndex, i: Integer;
+    Begin
+      key := Key2Edge(p1, p2);
+      KeyIndex := -1;
+      For i := 0 To high(map_edges) Do Begin
+        If opcomp(map_edges[i].key, key) Then Begin
+          KeyIndex := i;
+          break;
+        End;
+      End;
+
+      If (KeyIndex = -1) Then Begin
+        setlength(edges, high(edges) + 2);
+        edges[high(edges)].remove := false;
+        edges[high(edges)].endpoints[0] := p1;
+        edges[high(edges)].endpoints[1] := p2;
+        edges[high(edges)].adjface1 := -1;
+        edges[high(edges)].adjface2 := -1;
+        setlength(map_edges, high(map_edges) + 2);
+        map_edges[high(map_edges)].key := key;
+        map_edges[high(map_edges)].edge := high(edges);
+        KeyIndex := high(map_edges);
+      End;
+
+      If (edges[map_edges[KeyIndex].edge].adjface1 <> -1) And
+        (edges[map_edges[KeyIndex].edge].adjface2 <> -1) Then Begin
+        Raise exception.create('warning: property violated!');
+      End;
+      If edges[map_edges[KeyIndex].edge].adjface1 = -1 Then Begin
+        edges[map_edges[KeyIndex].edge].adjface1 := high(faces);
+      End
+      Else Begin
+        edges[map_edges[KeyIndex].edge].adjface2 := high(faces);
+      End;
+    End;
+
+  Begin
+    // Make sure face is CCW with face normal pointing outward
+    setlength(faces, high(faces) + 2);
+    faces[high(faces)].Visible := false;
+    faces[high(faces)].Vertices[0] := a;
+    faces[high(faces)].Vertices[1] := b;
+    faces[high(faces)].Vertices[2] := c;
+
+    If (VolumeSign(faces[high(faces)], inner_pt) < 0) Then Begin
+      faces[high(faces)].Vertices[2] := a;
+      faces[high(faces)].Vertices[0] := c;
+    End;
+
+    create_edge(a, b);
+    create_edge(a, c);
+    create_edge(b, c);
+  End;
+
+Var
+  processed: Array Of Boolean;
+
+  Function BuildFirstHull(): Boolean;
+  Var
+    n, i, j: integer;
+    fc: TFace;
+  Begin
+    result := false;
+    n := length(Points);
+    If (n <= 3) Then Begin
+      Raise exception.create('Tetrahedron: points.size() < 4');
+      exit;
+    End;
+
+    i := 2;
+    While (Colinear(i, i - 1, i - 2)) Do Begin
+      If (i = n - 1) Then Begin
+        Raise exception.create('Tetrahedron: All points are colinear!');
+        exit;
+      End;
+      i := i + 1;
+    End;
+
+    fc := Toface(i, i - 1, i - 2);
+    j := i;
+    While (VolumeSign(fc, j) = 0) Do Begin
+      If (j = n - 1) Then Begin
+        Raise exception.create('Tetrahedron: All pointcloud are coplanar!');
+        exit;
+      End;
+      j := j + 1;
+    End;
+
+    processed[i] := true;
+    processed[i - 1] := true;
+    processed[i - 2] := true;
+    processed[j] := true;
+
+    AddOneFace(i, i - 1, i - 2, j);
+    AddOneFace(i, i - 1, j, i - 2);
+    AddOneFace(i, i - 2, j, i - 1);
+    AddOneFace(i - 1, i - 2, j, i);
+
+    result := true;
+  End;
+
+  Function FindInnerPoint(Const f: integer; e: integer): integer;
+  Var
+    i: Integer;
+  Begin
+    For i := 0 To 2 Do Begin
+      If (faces[f].vertices[i] = edges[e].endpoints[0]) Then continue;
+      If (faces[f].vertices[i] = edges[e].endpoints[1]) Then continue;
+      result := faces[f].vertices[i];
+      exit;
+    End;
+  End;
+
+  Procedure IncreHull(pt: integer);
+  Var
+    vis: Boolean;
+    face1, face2, it, face, inner_pt: integer;
+  Begin
+    // Find the illuminated faces (which will be removed later)
+    vis := false;
+    For face := 0 To high(faces) Do Begin
+      If (VolumeSign(faces[face], pt) < 0) Then Begin
+        faces[face].visible := true;
+        vis := true;
+      End;
+    End;
+    If (Not vis) Then exit;
+
+    // Find the edges to make new tagent surface or to be removed
+    For it := 0 To high(edges) Do Begin
+      face1 := edges[it].adjface1;
+      face2 := edges[it].adjface2;
+
+      // Newly added edge
+      If (face1 = -1) Or (face2 = -1) Then Begin
+        Continue;
+      End
+      Else Begin
+        // This edge is to be removed because two adjacent faces will be removed
+        If (faces[face1].visible And faces[face2].visible) Then Begin
+          edges[it].remove := true;
+        End
+        Else Begin
+          // Edge on the boundary of visibility, which will be used to extend a tagent
+          // cone surface.
+          If (faces[face1].visible Or faces[face2].visible) Then Begin
+            If (faces[face1].visible) Then Begin
+              face1 := edges[it].adjface2;
+              face2 := edges[it].adjface1;
+            End;
+            inner_pt := FindInnerPoint(face2, it);
+            If edges[it].adjface1 = face2 Then edges[it].adjface1 := -1;
+            If edges[it].adjface2 = face2 Then edges[it].adjface2 := -1;
+            AddOneFace(edges[it].endpoints[0], edges[it].endpoints[1], pt, inner_pt);
+          End;
+        End;
+      End;
+    End;
+  End;
+
+  Procedure CleanUp;
+  Var
+    pt1, pt2, it_edge, j, k, it_face: integer;
+    key_to_evict: TKey;
+  Begin
+    For it_edge := high(edges) Downto 0 Do Begin
+      If (edges[it_edge].remove) Then Begin
+        pt1 := edges[it_edge].endpoints[0];
+        pt2 := edges[it_edge].endpoints[1];
+        key_to_evict := Key2Edge(pt1, pt2);
+        For j := 0 To high(map_edges) Do Begin
+          If opcomp(map_edges[j].key, key_to_evict) Then Begin
+            For k := j To high(map_edges) - 1 Do Begin
+              map_edges[k] := map_edges[k + 1];
+            End;
+            setlength(map_edges, high(map_edges));
+            break;
+          End;
+        End;
+        For j := 0 To high(map_edges) Do Begin
+          If map_edges[j].edge > it_edge Then map_edges[j].edge := map_edges[j].edge - 1;
+        End;
+        For j := it_edge To high(edges) - 1 Do Begin
+          edges[j] := edges[j + 1];
+        End;
+        setlength(edges, high(edges));
+      End;
+    End;
+    For it_face := high(faces) Downto 0 Do Begin
+      If faces[it_face].Visible Then Begin
+        For j := 0 To high(edges) Do Begin
+          If edges[j].adjface1 > it_face Then edges[j].adjface1 := edges[j].adjface1 - 1;
+          If edges[j].adjface2 > it_face Then edges[j].adjface2 := edges[j].adjface2 - 1;
+        End;
+        For j := it_face To high(faces) - 1 Do Begin
+          faces[j] := faces[j + 1];
+        End;
+        setlength(faces, high(faces));
+      End;
+    End;
+  End;
+
+Var
+  pt, i: Integer;
+Begin
+  // init
+  result := Nil;
+  faces := Nil;
+  processed := Nil;
+  map_edges := Nil;
+  edges := Nil;
+  // ConstructHull
+  setlength(processed, length(Points));
+  FillChar(processed[0], length(processed), false);
+  map_edges := Nil;
+  edges := Nil;
+  If (Not BuildFirstHull()) Then exit;
+  For pt := 0 To high(Points) Do Begin
+    If (processed[pt]) Then continue;
+    IncreHull(pt);
+    CleanUp();
+  End;
+  // copy / create results
+  setlength(result, length(faces));
+  For i := 0 To high(faces) Do Begin
+    result[i].a := faces[i].Vertices[0];
+    result[i].b := faces[i].Vertices[1];
+    result[i].c := faces[i].Vertices[2];
+    result[i].Normal := NormV3(
+      CrossV3(
+      Points[faces[i].Vertices[0]] - Points[faces[i].Vertices[1]],
+      Points[faces[i].Vertices[0]] - Points[faces[i].Vertices[2]]
+      ));
   End;
 End;
 
@@ -2752,6 +3329,230 @@ Begin
   setlength(Edges[1], 0);
 End;
 
+(*
+ * The following code is more or less a FreePascal Port of:
+ * https://gist.github.com/isedgar/ac26c58e3eb2934623a8b8bc89611b64
+ *)
+
+Function PointsToVoronoiPolygons(Const Points: TVector2Array; TopLeft,
+  BottomRight: TVector2): TVoronoi;
+
+// Calculates the perpendicular line between A and B
+
+  Function TwoPointsBisector(Const A, B: TVector2): Tvector3;
+  Var
+    Mid: TVector2;
+  Begin
+    Mid.x := (A.x + B.x) / 2;
+    Mid.y := (A.y + B.y) / 2;
+
+    Result.x := B.x - A.x;
+    Result.y := B.y - A.y;
+    Result.z := -Mid.x * Result.x - Mid.y * Result.y;
+  End;
+
+  (*
+   * Calculates the point between a and b that lies on line, false if not existing
+   *)
+  Function LineAndSegmentIntersection(Const Line: Tvector3; Const A, B: TVector2;
+    Out P: TVector2): Boolean;
+  Var
+    AB: Tvector3;
+    C: Tvector3;
+
+    IsVertical, IsHorizontal: Boolean;
+    IsEndpointX, IsEndpointY: Boolean;
+    IsBetweenXAxis, IsBetweenYAxis, IsBetweenAB: Boolean;
+  Begin
+    Result := False;
+
+    AB.x := A.y - B.y;
+    AB.y := B.x - A.x;
+    AB.z := A.x * B.y - B.x * A.y;
+
+    { Parallel lines check – 1:1 }
+    If Equal(Line.x / Line.y, AB.x / AB.y) And
+      Equal(Line.z / Line.y, AB.z / AB.y) Then
+      Exit;
+
+    C := CrossV3(Line, AB);
+
+    If Equal(C.z, 0) Then Exit;
+
+    P.x := C.x / C.z;
+    P.y := C.y / C.z;
+
+    IsVertical := Equal(A.x, B.x);
+    IsHorizontal := Equal(A.y, B.y);
+
+    IsEndpointY := Equal(P.y, A.y) Or Equal(P.y, B.y);
+    IsEndpointX := Equal(P.x, A.x) Or Equal(P.x, B.x);
+
+    IsBetweenXAxis := (P.x < A.x) <> (P.x < B.x);
+    IsBetweenYAxis := (P.y < A.y) <> (P.y < B.y);
+
+    IsBetweenAB := IsBetweenXAxis And IsBetweenYAxis;
+
+    If IsVertical And (IsEndpointY Or IsBetweenYAxis) Then
+      Result := True
+    Else If IsHorizontal And (IsEndpointX Or IsBetweenXAxis) Then
+      Result := True
+    Else If IsBetweenAB Then
+      Result := True;
+  End;
+Var
+  XLeft, YBottom, XRight, YTop: Double;
+  VoronoiBox: TVector2Array;
+
+  i, j, k, n, m: Integer;
+
+  Cell, NewCell: TVector2Array;
+  CurrentSite, NextSite: TVector2;
+  Bisector: Tvector3;
+
+  v1, v2_, CurrentVertex, NextVertex: TVector2;
+  FirstIntersection, SecondIntersection: TVector2;
+  HasFirstIntersection, HasSecondIntersection: Boolean;
+
+  FirstIntersectionIndex, SecondIntersectionIndex: Integer;
+Begin
+  result := Nil;
+  n := Length(Points);
+  SetLength(result, n); // Each point generates exakt 1 polygon ;)
+
+  // The Boundingbox every cell starts with this one
+  XLeft := min(TopLeft.x, BottomRight.x);
+  YBottom := min(TopLeft.y, BottomRight.y);
+  XRight := max(TopLeft.x, BottomRight.x);
+  YTop := max(TopLeft.y, BottomRight.y);
+
+  VoronoiBox := Nil;
+  SetLength(VoronoiBox, 4);
+  VoronoiBox[0] := v2(XLeft, YTop);
+  VoronoiBox[1] := v2(XRight, YTop);
+  VoronoiBox[2] := v2(XRight, YBottom);
+  VoronoiBox[3] := v2(XLeft, YBottom);
+
+  For i := 0 To n - 1 Do Begin
+    Cell := VoronoiBox;
+
+    CurrentSite := Points[i];
+
+    For j := 0 To n - 1 Do Begin
+      If i = j Then Continue;
+
+      m := Length(Cell);
+      NewCell := Nil;
+
+      NextSite := Points[j];
+      Bisector := TwoPointsBisector(CurrentSite, NextSite);
+
+      If (Bisector.x = 0) And (Bisector.y = 0) Then Continue;
+
+      HasFirstIntersection := False;
+
+      For k := 0 To m - 1 Do Begin
+        CurrentVertex := Cell[k];
+        NextVertex := Cell[(k + 1) Mod m];
+
+        HasFirstIntersection :=
+          LineAndSegmentIntersection(
+          Bisector, CurrentVertex, NextVertex, FirstIntersection
+          );
+
+        If HasFirstIntersection Then Begin
+          If Equal(FirstIntersection, NextVertex) Then Begin
+            SetLength(NewCell, Length(NewCell) + 1);
+            NewCell[High(NewCell)] := NextVertex;
+
+            SetLength(NewCell, Length(NewCell) + 1);
+            NewCell[High(NewCell)] := Cell[(k + 2) Mod m];
+
+            FirstIntersectionIndex := (k + 2) Mod m;
+          End
+          Else Begin
+            SetLength(NewCell, Length(NewCell) + 1);
+            NewCell[High(NewCell)] := FirstIntersection;
+
+            SetLength(NewCell, Length(NewCell) + 1);
+            NewCell[High(NewCell)] := NextVertex;
+
+            FirstIntersectionIndex := (k + 1) Mod m;
+          End;
+          Break;
+        End;
+      End;
+
+      If Length(NewCell) = 0 Then
+        NewCell := Cell
+      Else Begin
+        HasSecondIntersection := False;
+
+        k := FirstIntersectionIndex;
+        While k < m Do Begin
+          CurrentVertex := Cell[k];
+          NextVertex := Cell[(k + 1) Mod m];
+
+          HasSecondIntersection :=
+            LineAndSegmentIntersection(
+            Bisector, CurrentVertex, NextVertex, SecondIntersection
+            );
+
+          If HasSecondIntersection Then Begin
+            SetLength(NewCell, Length(NewCell) + 1);
+            NewCell[High(NewCell)] := SecondIntersection;
+            SecondIntersectionIndex := k + 1;
+            Break;
+          End
+          Else Begin
+            SetLength(NewCell, Length(NewCell) + 1);
+            NewCell[High(NewCell)] := NextVertex;
+          End;
+
+          Inc(k);
+        End;
+
+        If Not PointInPolygon(CurrentSite, NewCell) Then Begin
+          If Equal(
+            SecondIntersection,
+            Cell[SecondIntersectionIndex Mod m]
+            ) Then
+            SetLength(NewCell, 0)
+          Else Begin
+            SetLength(NewCell, 1);
+            NewCell[0] := SecondIntersection;
+          End;
+
+          k := SecondIntersectionIndex;
+          While ((k Mod m) > FirstIntersectionIndex) Or
+            ((k Mod m) < FirstIntersectionIndex) Do Begin
+            v1 := Cell[k Mod m];
+            v2_ := Cell[(k + 1) Mod m];
+
+            If Not Equal(v1, v2_) Then Begin
+              SetLength(NewCell, Length(NewCell) + 1);
+              NewCell[High(NewCell)] := v1;
+            End;
+
+            Inc(k);
+          End;
+
+          If Not Equal(FirstIntersection, v1) Then Begin
+            SetLength(NewCell, Length(NewCell) + 1);
+            NewCell[High(NewCell)] := FirstIntersection;
+          End;
+        End;
+      End;
+      Cell := NewCell;
+    End;
+
+    If Length(Cell) > 0 Then
+      result[i] := Cell
+    Else
+      result[i] := Nil; // Error, could not find a cell !
+  End;
+End;
+
 // Berechnet aus den 3 Punkten a,b,c einen Kreis, so dass die 3 Punkte auf dessen Kreisbahn liegen
 // Formel entnommen aus
 // Numerical Recipes 3. Editon §21.3
@@ -2969,24 +3770,22 @@ Begin
 End;
 
 Function RectIntersectRect(Const TL1, BR1, TL2, BR2: TVector2): Boolean;
+Var
+  min1, max1, min2, max2: TVector2;
 Begin
-  result :=
-    PointInRect(tl1, tl2, br2) Or
-    PointInRect(BR1, tl2, br2) Or
-    PointInRect(v2(tl1.x, br1.y), tl2, br2) Or
-    PointInRect(v2(br1.x, tl1.y), tl2, br2) Or
-    (*
-* Diese Fälle Hier Treten nur auf, wenn alle Punkte des Rechtecks 1 auserhalb des Ersten liegen
-* Dann muss das Rechteck 2 mindestens mit 2 Punkten Innerhalb des 1 Liegen (wäre es nur einer, dann
-* wäre wieder ein Fall von oben gekommen.
-* Den Test auf "Enthalten" sein kann man also mit nur 2 Prüfungen machen. Wichtig die beiden
-* Prüfpunkte müssen sich diagonal gegenüberliegen !
-*)
-  PointInRect(tl2, tl1, br1) Or
-    PointInRect(BR2, tl1, br1)
-    //    Or PointInRect(v2(tl2.x, br2.y), tl1, br1) // Diese Beiden Fälle kann man sich sparen
-//    Or PointInRect(v2(br2.x, tl2.y), tl1, br1) // Diese Beiden Fälle kann man sich sparen
-  ;
+  // Inspired by https://www.youtube.com/watch?app=desktop&v=QQx_NmCIuCY&t=0s
+  // 1. Sort points
+  min1 := minV2(TL1, BR1);
+  max1 := maxV2(TL1, BR1);
+  min2 := minV2(TL2, BR2);
+  max2 := maxV2(TL2, BR2);
+  // 2. do the inverted compare ;)
+  result := Not (
+    (max1.x < min2.x) Or
+    (min1.x > max2.x) Or
+    (max1.y < min2.y) Or
+    (min1.y > max2.y)
+    );
 End;
 
 Function PointInCube(Const P, TL, BR: Tvector3): Boolean;
@@ -3302,6 +4101,21 @@ Begin
   End;
 End;
 
+Function Convolve(Const a, b: tvectorN): TVectorN;
+Var
+  i, j: Integer;
+Begin
+  result := Nil;
+  setlength(result, length(a) + length(b) - 1);
+  For i := 0 To High(Result) Do Begin
+    Result[i] := 0;
+    For j := 0 To High(a) Do Begin
+      If (i - j >= 0) And (i - j <= High(b)) Then
+        Result[i] := Result[i] + a[j] * b[i - j];
+    End;
+  End;
+End;
+
 Function CalculateOrthoganlProjection(A, B, M: TVector2): TVector2;
 Var
   d_AB, d_M: TVector2;
@@ -3449,6 +4263,19 @@ Begin
   result := DotV2(self, Other);
 End;
 
+Procedure TVector2helper.Lerp(Const Other: TVector2; Amplitude: TBaseType);
+Var
+  d: TVector2;
+Begin
+  d := Other - Self;
+  self := self + d * Amplitude;
+End;
+
+Function TVector2helper.ToString: String;
+Begin
+  result := Print(self);
+End;
+
 { TVector3helper }
 
 Function TVector3helper.Equal(Other: TVector3): Boolean;
@@ -3510,9 +4337,26 @@ Begin
   result := HadamardVN(self, Other);
 End;
 
-Function TVectorNhelper.Transpose(): TMatrixNxM;
+Function TVectorNhelper.Transpose: TMatrixNxM;
 Begin
   result := TransposeVector(self);
+End;
+
+Procedure TVectorNhelper.Fill(value: TBaseType);
+var
+  i: Integer;
+Begin
+  For i := 0 To high(self) Do Begin
+    self[i] := value;
+  End;
+End;
+
+{ TVector2Arrayhelper }
+
+Procedure TVector2Arrayhelper.Push(Const Vector: TVector2);
+Begin
+  setlength(self, high(Self) + 2);
+  self[high(self)] := Vector;
 End;
 
 { TMatrix2x2helper }
