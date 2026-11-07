@@ -1,7 +1,7 @@
 (******************************************************************************)
 (* Greenfoot for Lazarus                                           08.04.2013 *)
 (*                                                                            *)
-(* Version     : 0.02                                                         *)
+(* Version     : 0.03                                                         *)
 (*                                                                            *)
 (* Author      : Uwe Schächterle (Corpsman)                                   *)
 (*                                                                            *)
@@ -61,6 +61,7 @@
 (* History     : 0.01 - Initial version                                       *)
 (*               0.02 - Ettliche Bugfixes / Memleak Clears                    *)
 (*                      utetris                                               *)
+(*               0.03 - Shader-Rendering und GTK3, Legacy-Diagnose             *)
 (*                                                                            *)
 (******************************************************************************)
 Unit Unit1;
@@ -127,6 +128,7 @@ Type
     Procedure Button3Click(Sender: TObject);
     Procedure FormCloseQuery(Sender: TObject; Var CanClose: boolean);
     Procedure FormCreate(Sender: TObject);
+    Procedure FormDestroy(Sender: TObject);
     Procedure FormKeyDown(Sender: TObject; Var Key: Word; Shift: TShiftState);
     Procedure FormKeyUp(Sender: TObject; Var Key: Word; Shift: TShiftState);
     Procedure MenuItem4Click(Sender: TObject);
@@ -151,6 +153,7 @@ Type
     ActorClasses: TActorClasses; // Die Aktuell Registrierten Actor Klassen
     RegisterWorldCalls: TRegisteredWorlds;
     LastWorldCreateClick: TRegisterMethod;
+    Procedure SetupFrame;
     Procedure ClearLCL; // Löscht alle Vorhandenen "Alten Objecte"
     Procedure CallRegisterWorld(Sender: TObject);
     Procedure RegisterActorClass(Actor: TActorClass; RegisterInPopupMenu: Boolean = true); // Registriert einen Actor in der Treeview
@@ -184,7 +187,17 @@ Var
 
 Implementation
 
+Uses uopengl_graphikengine, uopengl_shaderprimitives, uopengl_legacychecker;
+
 {$R *.lfm}
+
+Procedure OnOpenGLLegacyCall(Severity: GLuint; aMessage: String);
+Begin
+  Initialized := False;
+  ShowMessage('OpenGL Error (' + IntToStr(Severity) + '): ' + aMessage +
+    LineEnding + 'Application will be terminated.');
+  Halt(1);
+End;
 
 (*
  * Insert here your Create Routine Implementation
@@ -410,7 +423,9 @@ Begin
     showmessage('Error, could not init dglOpenGL.pas');
     Halt;
   End;
-  caption := 'Greenfoot for Lazarus ver. 0.02 by Corpsman, www.Corpsman.de';
+  OpenGLControl1.AutoResizeViewport := True;
+  OpenGLControl1.DebugContext := True;
+  Caption := 'Greenfoot for Lazarus ver. 0.03 by Corpsman, www.Corpsman.de';
   Timer1.Interval := 17;
   GroupBox1.Align := alBottom;
   panel1.Align := alright;
@@ -425,6 +440,26 @@ Begin
   c.StartEvent := @StartCallback;
   c.SpeedCallback := @SpeedCallback;
   InitSystem(c);
+  OpenGLControl1.Invalidate;
+End;
+
+Procedure TForm1.FormDestroy(Sender: TObject);
+Begin
+  Timer1.Enabled := False;
+  Timer2.Enabled := False;
+  Initialized := False;
+  If OpenGLControl1.MakeCurrent Then Begin
+    ClearLCL;
+    OpenGL_GraphikEngine_FinalizeShaderSystem;
+    OpenGL_ShaderPrimitives_FinalizeShaderSystem;
+  End;
+  Timer2.Enabled := False;
+End;
+
+Procedure TForm1.SetupFrame;
+Begin
+  glClearColor(0, 0, 0, 0);
+  glClear(GL_COLOR_BUFFER_BIT Or GL_DEPTH_BUFFER_BIT);
 End;
 
 Procedure TForm1.SpeedCallback(Sender: TObject; NewSpeed: integer;
@@ -452,89 +487,106 @@ End;
 
 Procedure TForm1.FormKeyDown(Sender: TObject; Var Key: Word; Shift: TShiftState
   );
+
+  Procedure PressKey(Value: TKeys);
+  Begin
+    Keypressed(Value);
+    Key := 0;
+  End;
+
 Begin
   // Todo : Hier fehlen noch einige Tastaturereignisse
   If ssShift In Shift Then Keypressed(key_shift);
-  If Key = VK_UP Then Keypressed(key_up);
-  If Key = VK_DOWN Then Keypressed(key_down);
-  If Key = VK_LEFT Then Keypressed(key_left);
-  If Key = VK_RIGHT Then Keypressed(key_right);
-  If key = VK_SPACE Then Keypressed(key_space);
-  If Key = VK_A Then Keypressed(key_a);
-  If Key = VK_b Then Keypressed(key_b);
-  If Key = VK_c Then Keypressed(key_c);
-  If Key = VK_d Then Keypressed(key_d);
-  If Key = VK_e Then Keypressed(key_e);
-  If Key = VK_f Then Keypressed(key_f);
-  If Key = VK_g Then Keypressed(key_g);
-  If Key = VK_h Then Keypressed(key_h);
-  If Key = VK_i Then Keypressed(key_i);
-  If Key = VK_j Then Keypressed(key_j);
-  If Key = VK_k Then Keypressed(key_k);
-  If Key = VK_l Then Keypressed(key_l);
-  If Key = VK_m Then Keypressed(key_m);
-  If Key = VK_n Then Keypressed(key_n);
-  If Key = VK_o Then Keypressed(key_o);
-  If Key = VK_p Then Keypressed(key_p);
-  If Key = VK_q Then Keypressed(key_q);
-  If Key = VK_r Then Keypressed(key_r);
-  If Key = VK_s Then Keypressed(key_s);
-  If Key = VK_t Then Keypressed(key_t);
-  If Key = VK_u Then Keypressed(key_u);
-  If Key = VK_v Then Keypressed(key_v);
-  If Key = VK_w Then Keypressed(key_w);
-  If Key = VK_x Then Keypressed(key_x);
-  If Key = VK_y Then Keypressed(key_y);
-  If Key = VK_z Then Keypressed(key_z);
+  If Key = VK_SHIFT Then PressKey(key_shift);
+  If Key = VK_UP Then PressKey(key_up);
+  If Key = VK_DOWN Then PressKey(key_down);
+  If Key = VK_LEFT Then PressKey(key_left);
+  If Key = VK_RIGHT Then PressKey(key_right);
+  If Key = VK_SPACE Then PressKey(key_space);
+  If Key = VK_A Then PressKey(key_a);
+  If Key = VK_b Then PressKey(key_b);
+  If Key = VK_c Then PressKey(key_c);
+  If Key = VK_d Then PressKey(key_d);
+  If Key = VK_e Then PressKey(key_e);
+  If Key = VK_f Then PressKey(key_f);
+  If Key = VK_g Then PressKey(key_g);
+  If Key = VK_h Then PressKey(key_h);
+  If Key = VK_i Then PressKey(key_i);
+  If Key = VK_j Then PressKey(key_j);
+  If Key = VK_k Then PressKey(key_k);
+  If Key = VK_l Then PressKey(key_l);
+  If Key = VK_m Then PressKey(key_m);
+  If Key = VK_n Then PressKey(key_n);
+  If Key = VK_o Then PressKey(key_o);
+  If Key = VK_p Then PressKey(key_p);
+  If Key = VK_q Then PressKey(key_q);
+  If Key = VK_r Then PressKey(key_r);
+  If Key = VK_s Then PressKey(key_s);
+  If Key = VK_t Then PressKey(key_t);
+  If Key = VK_u Then PressKey(key_u);
+  If Key = VK_v Then PressKey(key_v);
+  If Key = VK_w Then PressKey(key_w);
+  If Key = VK_x Then PressKey(key_x);
+  If Key = VK_y Then PressKey(key_y);
+  If Key = VK_z Then PressKey(key_z);
 
   If (sender = TrackBar1) Or (sender = Button1) Or (sender = Button2) Or (sender = Button3) Then key := 0;
 End;
 
 Procedure TForm1.FormKeyUp(Sender: TObject; Var Key: Word; Shift: TShiftState);
+
+  Procedure ReleaseKey(Value: TKeys);
+  Begin
+    KeyReleased(Value);
+    Key := 0;
+  End;
+
 Begin
   If ssShift In Shift Then KeyReleased(key_shift);
-  If Key = VK_UP Then KeyReleased(key_up);
-  If Key = VK_DOWN Then KeyReleased(key_down);
-  If Key = VK_LEFT Then KeyReleased(key_left);
-  If Key = VK_RIGHT Then KeyReleased(key_right);
-  If key = VK_SPACE Then KeyReleased(key_space);
-  If Key = VK_A Then KeyReleased(key_a);
-  If Key = VK_b Then KeyReleased(key_b);
-  If Key = VK_c Then KeyReleased(key_c);
-  If Key = VK_d Then KeyReleased(key_d);
-  If Key = VK_e Then KeyReleased(key_e);
-  If Key = VK_f Then KeyReleased(key_f);
-  If Key = VK_g Then KeyReleased(key_g);
-  If Key = VK_h Then KeyReleased(key_h);
-  If Key = VK_i Then KeyReleased(key_i);
-  If Key = VK_j Then KeyReleased(key_j);
-  If Key = VK_k Then KeyReleased(key_k);
-  If Key = VK_l Then KeyReleased(key_l);
-  If Key = VK_m Then KeyReleased(key_m);
-  If Key = VK_n Then KeyReleased(key_n);
-  If Key = VK_o Then KeyReleased(key_o);
-  If Key = VK_p Then KeyReleased(key_p);
-  If Key = VK_q Then KeyReleased(key_q);
-  If Key = VK_r Then KeyReleased(key_r);
-  If Key = VK_s Then KeyReleased(key_s);
-  If Key = VK_t Then KeyReleased(key_t);
-  If Key = VK_u Then KeyReleased(key_u);
-  If Key = VK_v Then KeyReleased(key_v);
-  If Key = VK_w Then KeyReleased(key_w);
-  If Key = VK_x Then KeyReleased(key_x);
-  If Key = VK_y Then KeyReleased(key_y);
-  If Key = VK_z Then KeyReleased(key_z);
+  If Key = VK_SHIFT Then ReleaseKey(key_shift);
+  If Key = VK_UP Then ReleaseKey(key_up);
+  If Key = VK_DOWN Then ReleaseKey(key_down);
+  If Key = VK_LEFT Then ReleaseKey(key_left);
+  If Key = VK_RIGHT Then ReleaseKey(key_right);
+  If Key = VK_SPACE Then ReleaseKey(key_space);
+  If Key = VK_A Then ReleaseKey(key_a);
+  If Key = VK_b Then ReleaseKey(key_b);
+  If Key = VK_c Then ReleaseKey(key_c);
+  If Key = VK_d Then ReleaseKey(key_d);
+  If Key = VK_e Then ReleaseKey(key_e);
+  If Key = VK_f Then ReleaseKey(key_f);
+  If Key = VK_g Then ReleaseKey(key_g);
+  If Key = VK_h Then ReleaseKey(key_h);
+  If Key = VK_i Then ReleaseKey(key_i);
+  If Key = VK_j Then ReleaseKey(key_j);
+  If Key = VK_k Then ReleaseKey(key_k);
+  If Key = VK_l Then ReleaseKey(key_l);
+  If Key = VK_m Then ReleaseKey(key_m);
+  If Key = VK_n Then ReleaseKey(key_n);
+  If Key = VK_o Then ReleaseKey(key_o);
+  If Key = VK_p Then ReleaseKey(key_p);
+  If Key = VK_q Then ReleaseKey(key_q);
+  If Key = VK_r Then ReleaseKey(key_r);
+  If Key = VK_s Then ReleaseKey(key_s);
+  If Key = VK_t Then ReleaseKey(key_t);
+  If Key = VK_u Then ReleaseKey(key_u);
+  If Key = VK_v Then ReleaseKey(key_v);
+  If Key = VK_w Then ReleaseKey(key_w);
+  If Key = VK_x Then ReleaseKey(key_x);
+  If Key = VK_y Then ReleaseKey(key_y);
+  If Key = VK_z Then ReleaseKey(key_z);
   If (sender = TrackBar1) Or (sender = Button1) Or (sender = Button2) Or (sender = Button3) Then key := 0;
 End;
 
 Procedure TForm1.FormCloseQuery(Sender: TObject; Var CanClose: boolean);
 Begin
   Initialized := false;
-  ClearLCL;
 End;
 
 Procedure TForm1.Button1Click(Sender: TObject);
 Begin
+  If Not Initialized Then Exit;
+  If Not OpenGLControl1.MakeCurrent Then Exit;
   If assigned(world) Then world.SystemAct();
 End;
 
@@ -551,6 +603,8 @@ End;
 
 Procedure TForm1.Button3Click(Sender: TObject);
 Begin
+  If Not Initialized Then Exit;
+  If Not OpenGLControl1.MakeCurrent Then Exit;
   If assigned(LastWorldCreateClick) Then Begin
     ClearLCL;
     LastWorldCreateClick();
@@ -567,7 +621,7 @@ Var
 
 Procedure TForm1.OpenGLControl1MakeCurrent(Sender: TObject; Var Allow: boolean);
 Begin
-  If allowcnt > 2 Then Begin
+  If allowcnt >= 2 Then Begin
     exit;
   End;
   inc(allowcnt);
@@ -576,16 +630,33 @@ Begin
     // Init dglOpenGL.pas , Teil 2
     ReadExtensions; // Anstatt der Extentions kann auch nur der Core geladen werden. ReadOpenGLCore;
     ReadImplementationProperties;
+    RegisterLegacyCheckerCallback(@OnOpenGLLegacyCall);
   End;
-  If allowcnt >= 2 Then Begin // Dieses If Sorgt mit dem obigen dafür, dass der Code nur 1 mal ausgeführt wird.
+  If allowcnt = 2 Then Begin
     (*
       Man bedenke, jedesmal wenn der Renderingcontext neu erstellt wird, müssen sämtliche Graphiken neu Geladen werden.
       Bei Nutzung der TOpenGLGraphikengine, bedeutet dies, das hier ein clear durchgeführt werden mus !!
     *)
-    glenable(GL_TEXTURE_2D); // Texturen
+    OpenGL_GraphikEngine.Clear;
+    SetupFrame;
+    If Not Assigned(glCreateShader) Then Begin
+      ReadExtensions;
+      ReadImplementationProperties;
+      RegisterLegacyCheckerCallback(@OnOpenGLLegacyCall);
+    End;
+    If Not Assigned(glCreateShader) Then
+      OnOpenGLLegacyCall(0, 'Shader support is required. No legacy fallback.');
+    Try
+      OpenGL_GraphikEngine_InitializeShaderSystem;
+      OpenGL_ShaderPrimitives_InitializeShaderSystem;
+    Except
+      On ShaderError: Exception Do
+        OnOpenGLLegacyCall(0, ShaderError.Message);
+    End;
     glDisable(GL_DEPTH_TEST); // Brauchts eigentlich nicht, schadet aber auch nicht
     // Der Anwendung erlauben zu Rendern.
     Initialized := True;
+    ReActivateKHRDebug;
     OpenGLControl1Resize(Nil);
   End;
   Form1.Invalidate;
@@ -631,39 +702,38 @@ End;
 Procedure TForm1.OpenGLControl1Paint(Sender: TObject);
 Begin
   If Not Initialized Then Exit;
-  glClearColor(0.0, 0.0, 0.0, 0.0);
-  glClear(GL_COLOR_BUFFER_BIT Or GL_DEPTH_BUFFER_BIT);
-  glLoadIdentity();
+  SetupFrame;
+  uopengl_graphikengine.Go2d(OpenGLControl1.Width, OpenGLControl1.Height);
   If assigned(World) Then
     world.RePaint();
+  uopengl_graphikengine.Exit2d;
   OpenGLControl1.SwapBuffers;
 End;
 
 Procedure TForm1.OpenGLControl1Resize(Sender: TObject);
+Var
+  TargetWidth, TargetHeight: Integer;
 Begin
   // Anpassen der Main Form auf die Erstellte Welt
   If Initialized Then Begin
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
+    If Not OpenGLControl1.MakeCurrent Then Exit;
     glViewport(0, 0, OpenGLControl1.Width, OpenGLControl1.Height);
-    gluPerspective(45.0, OpenGLControl1.Width / OpenGLControl1.Height, 0.1, 100.0);
-    glMatrixMode(GL_MODELVIEW);
+    OpenGLControl1.Invalidate;
 
-    Tform(self).Constraints.MaxHeight := 0;
-    Tform(self).Constraints.MinHeight := 0;
-    Tform(self).Constraints.Maxwidth := 0;
-    Tform(self).Constraints.Minwidth := 0;
+    TargetWidth := max(580, OpenGLControl1.Width + 227 + 10);
+    TargetHeight := max(350, OpenGLControl1.Height + 43 + GroupBox1.Height);
+    If (Width = TargetWidth) And (Height = TargetHeight) Then Exit;
 
-    form1.Width := max(580, OpenGLControl1.Width + 227 + 10);
-    form1.Height := max(350, OpenGLControl1.height + 43 + GroupBox1.Height);
-
-    Tform(self).Constraints.MaxHeight := Tform(self).Height;
-    Tform(self).Constraints.MinHeight := Tform(self).Height;
-    Tform(self).Constraints.Maxwidth := Tform(self).width;
-    Tform(self).Constraints.Minwidth := Tform(self).width;
-    // Center Form On Screen
-    top := max(0, (Screen.Height - Form1.Height) Div 2);
-    left := max(0, (Screen.Width - Form1.Width) Div 2);
+    Constraints.MaxHeight := 0;
+    Constraints.MinHeight := 0;
+    Constraints.MaxWidth := 0;
+    Constraints.MinWidth := 0;
+    SetBounds(max(0, (Screen.Width - TargetWidth) Div 2),
+      max(0, (Screen.Height - TargetHeight) Div 2), TargetWidth, TargetHeight);
+    Constraints.MaxHeight := Height;
+    Constraints.MinHeight := Height;
+    Constraints.MaxWidth := Width;
+    Constraints.MinWidth := Width;
   End;
 End;
 
@@ -675,16 +745,14 @@ Var
 {$ENDIF}
 Begin
   If Initialized Then Begin
-    OpenGLControl1.DoOnPaint;
+    OpenGLControl1.Invalidate;
 {$IFDEF DebuggMode}
+    If Not OpenGLControl1.MakeCurrent Then Exit;
     i := glGetError();
     If i <> 0 Then Begin
       Timer1.Enabled := false;
       p := gluErrorString(i);
-      showmessage('OpenGL Error (' + inttostr(i) + ') occured.' + #13#13 +
-        'OpenGL Message : "' + p + '"'#13#13 +
-        'Applikation will be terminated.');
-      close;
+      OnOpenGLLegacyCall(i, String(p));
     End;
 {$ENDIF}
   End;
@@ -695,6 +763,8 @@ Var
   i: integer;
   a: TActor;
 Begin
+  If Not Initialized Then Exit;
+  If Not OpenGLControl1.MakeCurrent Then Exit;
   If sender Is TMenuItem Then Begin
     i := (sender As TMenuItem).Tag;
     If (i >= 0) And (i <= high(ActorClasses)) Then Begin
@@ -708,6 +778,8 @@ Procedure TForm1.Timer2Timer(Sender: TObject);
 //Var
 //  t: Dword;
 Begin
+  If Not Initialized Then Exit;
+  If Not OpenGLControl1.MakeCurrent Then Exit;
   //  t := gettickcount;
   If assigned(world) Then
     world.SystemAct();
@@ -725,6 +797,8 @@ Procedure TForm1.CallRegisterWorld(Sender: TObject);
 Var
   i: integer;
 Begin
+  If Not Initialized Then Exit;
+  If Not OpenGLControl1.MakeCurrent Then Exit;
   If Sender Is TMenuItem Then Begin
     i := TMenuItem(sender).tag;
     If (i >= 0) And (i <= high(RegisterWorldCalls)) Then Begin
@@ -817,6 +891,9 @@ Procedure TForm1.ClearLCL;
 Var
   i: integer;
 Begin
+  If Not OpenGLControl1.MakeCurrent Then Exit;
+  If Assigned(World) Then World.Free;
+  World := Nil;
   GreenFootGraphicEngine.Clear();
   For i := low(Registered_Letters) To high(Registered_Letters) Do
     Registered_Letters[i] := false;
@@ -825,8 +902,6 @@ Begin
   PopupMenu1.Items.Clear;
   TreeView1.Items.Clear;
   TreeView1.Items.AddChild(Nil, 'TActor'); // Den "Anker" eintragen.
-  If Assigned(World) Then World.free;
-  world := Nil;
   setlength(ActorClasses, 0);
   TrackBar1.Visible := true;
   MouseInfo.Reset();

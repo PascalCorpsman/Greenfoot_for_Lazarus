@@ -40,7 +40,7 @@ Uses
   math,
   uvectormath, // http://corpsman.de/index.php?doc=opengl/opengl_graphikengine
   OpenGLContext, // TOpenGLControl ( default komponente unter Lazarus )
-  graphics;
+  graphics, uopengl_graphikengine;
 
 Type
 
@@ -192,7 +192,7 @@ Type
   private
     FRohdaten: Array Of Array[0..3] Of Byte; // Eine Schattenkopie von dem Was im OpenGL Buffer ist.
     FimageTexCoords: Array[0..1] Of TVector2; // Die Zugehörigen Texturkoordinaten
-    Fimage: integer; // Der BildPointer im OpenGL Buffer
+    Fimage: TGraphikItem;
     fWidth: integer; // Die nach außen Sichtbare "Echte" Breite des Bildes
     fHeight: Integer; // Die nach außen Sichtbare "Echte" Höhe des Bildes
     fWidthHalf: integer; // Die hälfte der Breite (nur Intern gebraucht)
@@ -202,6 +202,8 @@ Type
     fUpdateing: integer; // Hilft bei Begin / Endupdate
     fOwnedByGraphikEngine: Boolean; // True, wenn das Bild der GraphikEngine hinzugefügt wurde -> dann kümmert sich die GraphikEngine um das Freigeben
     Function FileToBitmap(Filename: String): TBitmap; // Wandelt eine "Datei" in ein TBitmap um, das dann weiter verarbetet werden kann
+    Procedure UploadImage;
+    Procedure RenderAt(x, y, Angle: Single);
   public
     FontSize: integer; // Legt fest wie Hoch die Schrift in Pixeln sein soll ( - Height Spiegelt an der X-Achse )
     Constructor Create(Filename: String);
@@ -435,25 +437,6 @@ Begin
   result.Green := Green;
   result.Blue := Blue;
   result.Alpha := Alpha;
-End;
-
-Procedure Go2d(Width, Height: integer);
-Begin
-  glMatrixMode(GL_PROJECTION);
-  glPushMatrix(); // Store The Projection Matrix
-  glLoadIdentity(); // Reset The Projection Matrix
-  glOrtho(0, Width, height, 0, -1, 1); // Set Up An Ortho Screen
-  glMatrixMode(GL_MODELVIEW);
-  glPushMatrix(); // Store old Modelview Matrix
-  glLoadIdentity(); // Reset The Modelview Matrix
-End;
-
-Procedure Exit2d();
-Begin
-  glMatrixMode(GL_PROJECTION);
-  glPopMatrix(); // Restore old Projection Matrix
-  glMatrixMode(GL_MODELVIEW);
-  glPopMatrix(); // Restore old Projection Matrix
 End;
 
 Function mouseDragged(Obj_: TGreenfootBase): Boolean;
@@ -802,11 +785,7 @@ Begin
   End;
   IntfImg1.free;
   b.free;
-  glGenTextures(1, @Fimage);
-  glBindTexture(GL_TEXTURE_2D, fimage);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, fOpenGLWidth, FOpenGLHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, @FRohdaten[0][0]);
+  UploadImage;
 End;
 
 Constructor TGreenfootImage.Create(Width, Height: Integer);
@@ -834,11 +813,7 @@ Begin
     FRohdaten[i][3] := 0;
   End;
   // Der OpenGL Teil
-  glGenTextures(1, @Fimage);
-  glBindTexture(GL_TEXTURE_2D, fimage);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, fOpenGLWidth, FOpenGLHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, @FRohdaten[0][0]);
+  UploadImage;
 End;
 
 Constructor TGreenfootImage.Create(Image: TGreenfootImage);
@@ -866,8 +841,19 @@ Begin
     FRohdaten[i][3] := image.FRohdaten[i][3];
   End;
   // Der OpenGL Teil
-  glGenTextures(1, @Fimage);
-  glBindTexture(GL_TEXTURE_2D, fimage);
+  UploadImage;
+End;
+
+Procedure TGreenfootImage.UploadImage;
+Begin
+  Fimage.IsAlphaImage := True;
+  Fimage.Stretched := smClamp;
+  Fimage.OrigWidth := fWidth;
+  Fimage.OrigHeight := fHeight;
+  Fimage.StretchedWidth := fOpenGLWidth;
+  Fimage.StretchedHeight := FOpenGLHeight;
+  glGenTextures(1, @Fimage.Image);
+  glBindTexture(GL_TEXTURE_2D, Fimage.Image);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, fOpenGLWidth, FOpenGLHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, @FRohdaten[0][0]);
@@ -876,7 +862,7 @@ End;
 Destructor TGreenfootImage.destroy;
 Begin
   setlength(FRohdaten, 0);
-  glDeleteTextures(1, @fimage);
+  glDeleteTextures(1, @Fimage.Image);
 End;
 
 Function TGreenfootImage.FileToBitmap(Filename: String): TBitmap;
@@ -924,7 +910,7 @@ Begin
     FRohdaten[i][3] := 0;
   End;
   If fUpdateing = 0 Then Begin
-    glBindTexture(GL_TEXTURE_2D, fimage);
+    glBindTexture(GL_TEXTURE_2D, Fimage.Image);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexSubImage2D(gl_texture_2d, 0, 0, 0, fOpenGLWidth, FOpenGLHeight, GL_RGBA, GL_UNSIGNED_BYTE, @Frohdaten[0][0]);
@@ -932,33 +918,31 @@ Begin
 End;
 
 Procedure TGreenfootImage.RePaint;
-Var
-  b: Boolean;
 Begin
-  B := glIsEnabled(gl_Blend);
-  If Not b Then
-    glenable(gl_Blend);
-  If Fimage <> 0 Then Begin
+  RenderAt(0, 0, 0);
+End;
+
+Procedure TGreenfootImage.RenderAt(x, y, Angle: Single);
+Var
+  BlendEnabled: Boolean;
+  RenderWidth, RenderHeight, Sine, Cosine: Single;
+Begin
+  BlendEnabled := glIsEnabled(GL_BLEND);
+  If Not BlendEnabled Then
+    glEnable(GL_BLEND);
+  If Fimage.Image <> 0 Then Begin
+    RenderWidth := 2 * fWidthHalf + 1;
+    RenderHeight := 2 * fHeightHalf + 1;
+    If FimageTexCoords[0].x <> 0 Then RenderWidth := -RenderWidth;
+    If FimageTexCoords[1].y <> 0 Then RenderHeight := -RenderHeight;
+    Sine := Sin(DegToRad(Angle));
+    Cosine := Cos(DegToRad(Angle));
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glColor4f(1, 1, 1, 1);
-    glBindTexture(GL_TEXTURE_2D, FImage);
-    glBegin(GL_QUADS);
-    //    glTexCoord2f(0, 0);
-    glTexCoord2f(FimageTexCoords[0].x, FimageTexCoords[1].y);
-    glVertex2f(-fWidthHalf, -fHeightHalf);
-    //    glTexCoord2f(1, 0);
-    glTexCoord2f(FimageTexCoords[1].x, FimageTexCoords[1].y);
-    glVertex2f(fWidthHalf + 1, -fHeightHalf);
-    //    glTexCoord2f(1, 1);
-    glTexCoord2f(FimageTexCoords[1].x, FimageTexCoords[0].y);
-    glVertex2f(fWidthHalf + 1, fHeightHalf + 1);
-    //    glTexCoord2f(0, 1);
-    glTexCoord2f(FimageTexCoords[0].x, FimageTexCoords[0].y);
-    glVertex2f(-fWidthHalf, fHeightHalf + 1);
-    glend();
+    RenderQuad(v2(x + (Cosine - Sine) / 2, y + (Sine + Cosine) / 2),
+      0, RenderWidth, RenderHeight, -Angle, Fimage);
   End;
-  If Not b Then
-    gldisable(gl_Blend);
+  If Not BlendEnabled Then
+    glDisable(GL_BLEND);
 End;
 
 Procedure TGreenfootImage.Rotate(degrees: integer);
@@ -1052,7 +1036,7 @@ Var
   x, y: Double;
   i, j: Integer;
 Begin
-  glDeleteTextures(1, @fimage); // Altes OpenGL Image Löschen
+  glDeleteTextures(1, @Fimage.Image); // Altes OpenGL Image Löschen
   // Anlegen einer Kopie
   tmp := Nil;
   setlength(tmp, high(FRohdaten) + 1);
@@ -1094,11 +1078,7 @@ Begin
       FRohdaten[j * fOpenGLWidth + i] := c;
     End;
   End;
-  glGenTextures(1, @Fimage);
-  glBindTexture(GL_TEXTURE_2D, fimage);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, fOpenGLWidth, FOpenGLHeight, 0, GL_RGBA, GL_UNSIGNED_BYTE, @FRohdaten[0][0]);
+  UploadImage;
 End;
 
 Procedure TGreenfootImage.SetColor(Color: TGreenFootColor);
@@ -1123,8 +1103,7 @@ Begin
     FRohdaten[y * fOpenGLWidth + x][3] := color.Alpha;
     // Übernehmen im OpenGL Puffer
     If fUpdateing = 0 Then Begin
-      glEnable(GL_TEXTURE_2D);
-      glBindTexture(GL_TEXTURE_2D, fimage);
+      glBindTexture(GL_TEXTURE_2D, Fimage.Image);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
       glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
       glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, @d[0]);
@@ -1446,7 +1425,7 @@ Procedure TGreenfootImage.EndUpdate;
 Begin
   dec(fUpdateing);
   If fUpdateing = 0 Then Begin // Beim Ende eines Updates wird alles geschrieben
-    glBindTexture(GL_TEXTURE_2D, fimage);
+    glBindTexture(GL_TEXTURE_2D, Fimage.Image);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexSubImage2D(gl_texture_2d, 0, 0, 0, fOpenGLWidth, FOpenGLHeight, GL_RGBA, GL_UNSIGNED_BYTE, @Frohdaten[0][0]);
@@ -1791,9 +1770,17 @@ Begin
 End;
 
 Procedure TActor.rePaint;
+Var
+  PositionX, PositionY: Integer;
 Begin
   If assigned(fImage) Then Begin
-    fimage.Repaint();
+    PositionX := getx;
+    PositionY := gety;
+    If fworld.fcellsize > 1 Then Begin
+      PositionX := PositionX * fworld.fcellsize + fworld.fcellsize Div 2;
+      PositionY := PositionY * fworld.fcellsize + fworld.fcellsize Div 2;
+    End;
+    FImage.RenderAt(PositionX, PositionY, getRotation());
   End;
 End;
 
@@ -2067,8 +2054,8 @@ Begin
   fParent := Parent;
   fworldHeight := worldHeight;
   fworldWidth := worldWidth;
-  fParent.Width := worldWidth * cellSize;
-  fParent.Height := worldHeight * cellSize;
+  fParent.SetBounds(fParent.Left, fParent.Top,
+    worldWidth * cellSize, worldHeight * cellSize);
   FWidth := worldWidth * cellSize;
   fHeight := worldHeight * cellSize;
   fcellsize := cellSize;
@@ -2118,40 +2105,23 @@ Procedure TWorld.rePaint;
 Var
   i, j: Integer;
 Begin
-  Go2d(FWidth, fHeight);
   // 1. der Hintergrund
   If assigned(Fimage) Then Begin
-    glpushmatrix;
-    glTranslatef(-Fimage.fWidth / 2, Fimage.fHeight / 2, 0);
     For j := 1 To (fHeight Div Fimage.fHeight) + 1 Do Begin
-      glpushmatrix;
       For i := 1 To (FWidth Div Fimage.fWidth) + 1 Do Begin
-        glTranslatef(Fimage.fWidth, 0, 0);
-        Fimage.RePaint();
+        FImage.RenderAt((i - 0.5) * FImage.fWidth,
+          (j - 0.5) * FImage.fHeight, 0);
       End;
-      glPopMatrix;
-      glTranslatef(0, Fimage.fHeight, 0);
     End;
-    glPopMatrix;
   End;
   // Nach Reihenfolge Rendern aller Objekte
   For i := high(FPaintClasses) Downto 0 Do Begin // Das Rendern geschieht Rückwärts, damit der Tiefenpuffer Richtig "überschrieben" wird.
     For j := 0 To high(FPaintClasses[i]) Do Begin
       If FObjects[FPaintClasses[i, j]].Actor.FisAlive Then Begin // Nur was Lebt wird auch gezeichnet
-        glPushMatrix;
-        If fcellsize > 1 Then Begin
-          glTranslatef(FObjects[FPaintClasses[i, j]].x * fcellsize + fcellsize Div 2, FObjects[FPaintClasses[i, j]].y * fcellsize + fcellsize Div 2, 0);
-        End
-        Else Begin
-          glTranslatef(FObjects[FPaintClasses[i, j]].x, FObjects[FPaintClasses[i, j]].y, 0);
-        End;
-        glRotatef(FObjects[FPaintClasses[i, j]].rotation, 0, 0, 1);
         FObjects[FPaintClasses[i, j]].Actor.RePaint();
-        glPopMatrix;
       End;
     End;
   End;
-  Exit2d();
 End;
 
 Procedure TWorld.setPaintOrder(Const Order: Array Of TClass);

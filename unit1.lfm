@@ -1,18 +1,20 @@
 object Form1: TForm1
   Left = 338
-  Height = 489
+  Height = 533
   Top = 108
   Width = 728
+  ActiveControl = OpenGLControl1
   Caption = 'Form1'
-  ClientHeight = 467
+  ClientHeight = 533
   ClientWidth = 728
   KeyPreview = True
   Menu = MainMenu1
+  LCLVersion = '5.99.0.0'
   OnCloseQuery = FormCloseQuery
   OnCreate = FormCreate
+  OnDestroy = FormDestroy
   OnKeyDown = FormKeyDown
   OnKeyUp = FormKeyUp
-  LCLVersion = '2.3.0.0'
   object OpenGLControl1: TOpenGLControl
     Left = 8
     Height = 344
@@ -40,8 +42,8 @@ object Form1: TForm1
       Top = 8
       Width = 75
       Caption = 'Act'
-      OnClick = Button1Click
       TabOrder = 0
+      OnClick = Button1Click
     end
     object Button2: TButton
       Left = 102
@@ -49,8 +51,8 @@ object Form1: TForm1
       Top = 8
       Width = 75
       Caption = 'Start'
-      OnClick = Button2Click
       TabOrder = 1
+      OnClick = Button2Click
     end
     object Button3: TButton
       Left = 190
@@ -58,8 +60,8 @@ object Form1: TForm1
       Top = 8
       Width = 75
       Caption = 'Reset'
-      OnClick = Button3Click
       TabOrder = 2
+      OnClick = Button3Click
     end
     object Label1: TLabel
       Left = 286
@@ -76,12 +78,12 @@ object Form1: TForm1
       Frequency = 25
       Max = 100
       Min = 1
-      OnChange = TrackBar1Change
       PageSize = 25
       Position = 50
+      OnChange = TrackBar1Change
+      TabOrder = 3
       OnKeyDown = FormKeyDown
       OnKeyUp = FormKeyUp
-      TabOrder = 3
     end
   end
   object Panel1: TPanel

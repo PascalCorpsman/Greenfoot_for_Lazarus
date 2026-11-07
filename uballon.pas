@@ -143,7 +143,7 @@ Var
   Balloon: TActor;
 Begin
   mouse := MouseInfo;
-  setLocation(mouse.getX(), mouse.getY());
+  setLocation(mouse.getX(), mouse.getY(), false);
   If mouseClicked(Nil) Then Begin
     x := -getImage().getWidth() Div 2;
     y := getImage().getHeight() Div 2;
